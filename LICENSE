@@ -1,0 +1,28 @@
+# Unlock Gate — Proprietary License
+
+Copyright (c) 2026 Walid Riachy. All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary property of Walid Riachy. No part of the Software may be copied,
+modified, merged, published, distributed, sublicensed, sold, or used to create
+derivative works without the express written permission of the copyright holder.
+
+## Permitted use
+- You may view and run the Software for personal, non-commercial evaluation.
+- You may not deploy the Software as a hosted service, SaaS, or commercial
+  product, nor redistribute it in any form, without a written license agreement.
+
+## No warranty
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Third-party components
+This project depends on open-source libraries (Next.js, React, Tailwind, etc.)
+which retain their own licenses. See package.json for the full list.
+
+For licensing inquiries or commercial use, contact the copyright holder.
