@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Long enough to satisfy the production SESSION_SECRET rule; CI only.
+      SESSION_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PORT: 3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Generates the route types (e.g. RouteContext) that tsc needs.
+      - run: npx next typegen
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npx playwright test
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
