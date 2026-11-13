@@ -1,5 +1,29 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { readDB, writeDB } from "@/lib/db";
+
+/** The verify token Meta echoes during webhook setup. Required in production. */
+function verifyToken(): string | null {
+  const value = process.env.META_VERIFY_TOKEN;
+  if (value) return value;
+  return process.env.NODE_ENV === "production" ? null : "gatekeeper";
+}
+
+/**
+ * Meta signs every delivery: X-Hub-Signature-256 = "sha256=" + HMAC-SHA256 of
+ * the raw body keyed with the app secret. Without this check anyone could POST
+ * fake comments and make the app send DMs. Outside production an unset secret
+ * is allowed so the flow can be tried locally.
+ */
+function signatureValid(raw: string, header: string | null): boolean {
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appSecret) return process.env.NODE_ENV !== "production";
+  if (!header?.startsWith("sha256=")) return false;
+  const expected = crypto.createHmac("sha256", appSecret).update(raw, "utf8").digest("hex");
+  const given = header.slice("sha256=".length);
+  if (given.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(given, "utf8"), Buffer.from(expected, "utf8"));
+}
 import { getBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -9,16 +33,21 @@ export async function GET(req: Request) {
   const mode = url.searchParams.get("hub.mode");
   const token = url.searchParams.get("hub.verify_token");
   const challenge = url.searchParams.get("hub.challenge");
-  if (mode === "subscribe" && token === (process.env.META_VERIFY_TOKEN || "gatekeeper")) {
+  const expectedToken = verifyToken();
+  if (mode === "subscribe" && expectedToken && token === expectedToken) {
     return new Response(challenge || "", { status: 200 });
   }
   return new Response("Forbidden", { status: 403 });
 }
 
 export async function POST(req: Request) {
+  const raw = await req.text();
+  if (!signatureValid(raw, req.headers.get("x-hub-signature-256"))) {
+    return NextResponse.json({ ok: false, error: "Bad signature" }, { status: 401 });
+  }
   let payload: any;
   try {
-    payload = await req.json();
+    payload = JSON.parse(raw);
   } catch {
     return NextResponse.json({ ok: false }, { status: 400 });
   }

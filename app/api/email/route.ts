@@ -1,5 +1,30 @@
 import { NextResponse } from "next/server";
-import { readDB, writeDB, uid, ensureDefaultList } from "@/lib/db";
+import { cookies } from "next/headers";
+import { readDB, writeDB, uid, ensureDefaultList, type DB } from "@/lib/db";
+import { underLimit, clientIp } from "@/lib/rate-limit";
+
+const VISITOR_COOKIE = "gk_visitor";
+
+/** Note on this visitor's unlock row that they gave an email for this link. */
+function markEmailStep(db: DB, linkId: string, token: string | undefined) {
+  if (!token) return;
+  let row = db.unlocks.find((u) => u.linkId === linkId && u.visitorToken === token);
+  if (!row) {
+    row = {
+      id: uid("un"),
+      linkId,
+      userId: null,
+      visitorToken: token,
+      stepsCompleted: [],
+      country: null,
+      device: null,
+      referrer: null,
+      completedAt: 0,
+    };
+    db.unlocks.push(row);
+  }
+  row.emailAt = Date.now();
+}
 
 export const runtime = "nodejs";
 
@@ -22,6 +47,7 @@ export async function POST(req: Request) {
   }
   const email = String(body.email || "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email");
+  if (!underLimit(["email", clientIp(req)], 20, 60_000)) return fail("Too many requests, slow down", 429);
 
   const db = readDB();
   let listId: string | null = body.listId || null;
@@ -30,8 +56,10 @@ export async function POST(req: Request) {
   if (body.linkId) {
     const link = db.links.find((l) => l.id === body.linkId);
     if (!link) return fail("Link not found", 404);
+    markEmailStep(db, link.id, (await cookies()).get(VISITOR_COOKIE)?.value);
     if (!link.userId) {
-      // Unclaimed link: no owner list to write to yet. Accept but don't store.
+      // Unclaimed link: no owner list to write to yet. Record the step only.
+      writeDB(db);
       return NextResponse.json({ ok: true, stored: false });
     }
     listId = listId || ensureDefaultList(db, link.userId).id;

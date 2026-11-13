@@ -66,6 +66,10 @@ export async function POST(req: Request) {
   }
 
   // Demo mode: apply the plan directly so the whole product is explorable.
+  // Never in production — there it would hand out paid plans for free.
+  if (tier !== "free" && process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_BILLING !== "1") {
+    return fail("Payments are not configured yet", 503);
+  }
   sub.tier = tier;
   sub.status = "active";
   sub.currentPeriodEnd = tier === "free" ? null : Date.now() + (tier === "lifetime" ? 100 * 365 * 86_400_000 : 30 * 86_400_000);

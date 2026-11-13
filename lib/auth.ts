@@ -3,7 +3,25 @@ import { cookies } from "next/headers";
 import { readDB, type User, type Subscription } from "./db";
 
 const COOKIE = "gk_session";
-const SECRET = process.env.SESSION_SECRET || "dev-secret-change-me";
+const DEV_SECRET = "dev-secret-change-me";
+const PLACEHOLDERS = new Set([DEV_SECRET, "change-me-to-a-long-random-string"]);
+
+/**
+ * The key that signs sessions and one-shot tokens. In production a missing,
+ * placeholder or short SESSION_SECRET is a hard error: with a guessable key
+ * anyone could forge a login cookie for any account, including admins.
+ * Read lazily so `next build` works without the variable set.
+ */
+function secret(): string {
+  const value = process.env.SESSION_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    if (!value || PLACEHOLDERS.has(value) || value.length < 32) {
+      throw new Error("SESSION_SECRET must be set to a random string of at least 32 characters in production");
+    }
+    return value;
+  }
+  return value || DEV_SECRET;
+}
 
 export interface SessionPayload {
   userId: string;
@@ -28,7 +46,7 @@ export interface ActionPayload {
 }
 
 function sign(data: string): string {
-  return crypto.createHmac("sha256", SECRET).update(data).digest("base64url");
+  return crypto.createHmac("sha256", secret()).update(data).digest("base64url");
 }
 
 export function createToken(payload: SessionPayload): string {
