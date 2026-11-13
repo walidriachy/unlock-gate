@@ -110,6 +110,10 @@ export interface Unlock {
   device: string | null;
   referrer: string | null;
   completedAt: number;
+  /** Server time each step's platform was opened (via the "check" intent). */
+  openedAt?: Record<number, number>;
+  /** Server time this visitor submitted an email for this link. */
+  emailAt?: number;
 }
 
 export interface EmailList {
@@ -244,6 +248,8 @@ export interface CryptoPayment {
   status: "pending" | "paid";
   createdAt: number;
   paidAt: number | null;
+  /** On-chain signature that paid this order; each one is used once. */
+  signature?: string;
 }
 
 export interface IgAccount {
@@ -386,7 +392,11 @@ export function readDB(): DB {
       if (!u.role) (u as any).role = "user";
     }
     return base;
-  } catch {
+  } catch (err) {
+    // Only a missing file means "first run". Any other error (a corrupt or
+    // half-written file, a permissions problem) must not be answered by
+    // overwriting every user's data with an empty database.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
     const db = emptyDB();
     writeDB(db);
     return db;
@@ -395,7 +405,11 @@ export function readDB(): DB {
 
 export function writeDB(db: DB): void {
   fs.mkdirSync(DB_DIR, { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  // Write to a temp file and rename, so a crash mid-write can't leave a
+  // truncated db.json behind.
+  const tmp = `${DB_PATH}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), "utf8");
+  fs.renameSync(tmp, DB_PATH);
 }
 
 export function availableSlug(db: DB, base: string, taken: (s: string) => boolean): string {
@@ -423,17 +437,43 @@ export function ensureDefaultList(db: DB, userId: string): EmailList {
 // Seed — a demo creator so the dashboard is alive on first run.
 // ---------------------------------------------------------------------------
 
+/**
+ * Development: seed the demo creator and a demo admin (admin@gatekeeper.app /
+ * admin1234) so the app is explorable.
+ *
+ * Production: never seed demo data or a known password. The first admin comes
+ * from ADMIN_EMAIL + ADMIN_PASSWORD (12+ characters) when no admin exists;
+ * remove ADMIN_PASSWORD from the environment once the account is created.
+ * SEED_DEMO=1 forces the demo seed (e.g. for a public demo deployment).
+ */
 export function ensureSeed(): void {
+  const production = process.env.NODE_ENV === "production";
   const db = readDB();
-  if (db.users.length === 0) {
+  if (db.users.length === 0 && (!production || process.env.SEED_DEMO === "1")) {
     seedDemo(db);
   }
   if (!db.users.some((u) => u.role === "admin")) {
+    let email = "admin@gatekeeper.app";
+    let password = "admin1234";
+    if (production) {
+      const envEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+      const envPassword = process.env.ADMIN_PASSWORD;
+      if (!envEmail || !envPassword || envPassword.length < 12) {
+        console.warn("[gatekeeper] No admin account. Set ADMIN_EMAIL and ADMIN_PASSWORD (12+ chars) to create one.");
+        return;
+      }
+      if (db.users.some((u) => u.email === envEmail)) {
+        console.warn(`[gatekeeper] ${envEmail} already exists; promote it to admin instead of seeding.`);
+        return;
+      }
+      email = envEmail;
+      password = envPassword;
+    }
     const now = Date.now();
     const admin: User = {
       id: uid("u"),
-      email: "admin@gatekeeper.app",
-      passwordHash: hashPassword("admin1234"),
+      email,
+      passwordHash: hashPassword(password),
       provider: "email",
       role: "admin",
       username: "admin",

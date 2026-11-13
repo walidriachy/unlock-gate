@@ -22,7 +22,7 @@ import type { Action } from "./db";
 export type EffectiveMode = "click" | "email" | "oauth";
 
 export function effectiveMode(action: Pick<Action, "verificationMode" | "provider">): EffectiveMode {
-  if (action.verificationMode === "email") return "email";
+  if (action.verificationMode === "email" || action.provider === "email") return "email";
   if (action.verificationMode === "oauth" && oauthConfigured(action.provider)) return "oauth";
   return "click";
 }
@@ -62,11 +62,29 @@ export function oauthAuthorizeUrl(provider: string, redirectUri: string, state: 
 }
 
 /**
- * In demo ("click") mode we accept that the visitor opened the target. We do a
- * few cheap sanity checks so the flow can't be completed instantly by a script
- * firing both events in the same tick.
+ * Minimum time between the server handing out a step's platform URL and the
+ * visitor confirming it. "Click" steps are honour-system, so this can't prove
+ * the action happened — it only stops a script from POSTing every step index
+ * straight to "unlock" without ever opening the platform.
  */
-export function stepLooksHuman(openedAt: number | null | undefined): boolean {
-  if (!openedAt) return true; // no timing info — don't block
-  return Date.now() - openedAt > 900;
+export const MIN_STEP_DWELL_MS = 3_000;
+
+/** Why a step may not be marked done via the "step" intent, or null if it may. */
+export function stepRejection(
+  mode: EffectiveMode,
+  row: { openedAt?: Record<number, number>; emailAt?: number },
+  index: number,
+  now = Date.now()
+): string | null {
+  if (mode === "oauth") {
+    // Only /api/oauth/callback can complete these, after asking the platform.
+    return "This step is verified with the platform — use the button to connect";
+  }
+  if (mode === "email") {
+    return row.emailAt ? null : "Enter your email first";
+  }
+  const opened = row.openedAt?.[index];
+  if (!opened) return "Open the step first";
+  if (now - opened < MIN_STEP_DWELL_MS) return "Finish the step on the platform, then confirm";
+  return null;
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readDB, writeDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { findMemoTransaction, rpcUrl } from "@/lib/solana";
+import { findPayment, rpcUrl } from "@/lib/solana";
 
 export const runtime = "nodejs";
 
@@ -27,8 +27,13 @@ export async function POST(req: Request) {
 
   const cfg = db.config || {};
   const url = rpcUrl(cfg.solana_rpc_url);
-  const sig = await findMemoTransaction(payment.wallet, payment.memo, url);
+  const sig = await findPayment(payment.wallet, payment.memo, payment.mint, payment.amount, url);
   if (!sig) return NextResponse.json({ ok: true, paid: false });
+  // One on-chain payment can only ever pay for one order.
+  if (db.cryptoPayments.some((p) => p.id !== payment.id && p.signature === sig)) {
+    return NextResponse.json({ ok: true, paid: false });
+  }
+  payment.signature = sig;
 
   payment.status = "paid";
   payment.paidAt = Date.now();

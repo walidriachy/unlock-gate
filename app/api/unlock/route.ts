@@ -10,7 +10,8 @@ import {
 import { actionsForLink, linkStatus } from "@/lib/queries";
 import { classifyRequest } from "@/lib/format";
 import { sessionFromRequest } from "@/lib/auth";
-import { effectiveMode, oauthAuthorizeUrl } from "@/lib/verify";
+import { effectiveMode, oauthAuthorizeUrl, stepRejection } from "@/lib/verify";
+import { underLimit, clientIp } from "@/lib/rate-limit";
 import { getBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
   const intent = String(body.intent || "");
   const linkId = String(body.linkId || "");
   if (!linkId) return fail("linkId required");
+  if (!underLimit(["unlock", clientIp(req)], 120, 60_000)) return fail("Too many requests, slow down", 429);
 
   const db = readDB();
   const link = db.links.find((l) => l.id === linkId);
@@ -153,6 +155,11 @@ export async function POST(req: Request) {
       ).toString("base64url");
       verifyUrl = oauthAuthorizeUrl(action.provider, `${base}/api/oauth/callback`, state);
     }
+    if (!completed && mode === "click") {
+      // Start the dwell clock: "step" is only accepted a few seconds after this.
+      row.openedAt = { ...(row.openedAt || {}), [index]: Date.now() };
+      writeDB(db);
+    }
     const nextPending = actions.map((_, i) => i).find((i) => !row.stepsCompleted.includes(i)) ?? null;
     return NextResponse.json({
       ok: true,
@@ -172,6 +179,8 @@ export async function POST(req: Request) {
     if (!Number.isInteger(index) || index < 0 || index >= actions.length) return fail("Bad step");
     if (!linkStatus(link).live) return fail("Link is not live", 409);
     if (!row.stepsCompleted.includes(index)) {
+      const rejection = stepRejection(effectiveMode(actions[index]), row, index);
+      if (rejection) return fail(rejection, 409);
       row.stepsCompleted = [...row.stepsCompleted, index].sort((a, b) => a - b);
       row.country = row.country || country;
       row.device = row.device || device;

@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { readDB, writeDB, uid, UPLOAD_DIR, type FileRecord } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { underLimit, clientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,9 @@ const MAX_BYTES = 25 * 1024 * 1024; // 25 MB for the local stub (real app: objec
 
 export async function POST(req: Request) {
   const session = await getSession();
+  if (!underLimit(["upload", clientIp(req)], 10, 10 * 60_000)) {
+    return NextResponse.json({ ok: false, error: "Too many uploads, try again later" }, { status: 429 });
+  }
   let form: FormData;
   try {
     form = await req.formData();
