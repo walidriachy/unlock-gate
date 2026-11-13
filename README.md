@@ -14,9 +14,6 @@ It was built to **study how the product works**. Read `../replica/recon.md` for
 the reverse-engineering notes and `../replica/features.csv` for the feature
 matrix.
 
-> Not affiliated with Rekonise. Original code, original copy, no assets or
-> trademarks taken from the original.
-
 ---
 
 ## Run it
